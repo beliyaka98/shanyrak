@@ -1,8 +1,8 @@
 from sqlalchemy.orm import Session
-
-from fastapi import Depends, FastAPI, HTTPException, Response
+from sqlalchemy import and_, desc
+from fastapi import Depends, FastAPI, HTTPException, Response, status
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
-
+from fastapi.encoders import jsonable_encoder
 from . import crud, models, schemas
 from .database import SessionLocal, engine
 
@@ -39,13 +39,12 @@ def login(
     ):
     db_user = crud.get_user_by_username(db=db, username=form_data.username)
     if not db_user:
-        raise HTTPException(status_code=400, detail="Incorrect username or password.")
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Incorrect username or password.")
     hashed_password = fake_hashed_password(form_data.password)
     if not hashed_password == db_user.hashed_password:
-        raise HTTPException(status_code=400, detail="Incorrect username or password.")
-
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Incorrect username or password.")
     token = signJWT(db_user.id)
-
+    print(token)
     return {"access_token": token, "token_type": "bearer"}
 
 @app.patch("/auth/users/me", tags=["update"])
@@ -77,7 +76,7 @@ def update_advert(id: int, advert: schemas.AdvertUpdate, token: str = Depends(oa
     user_id = decodeJWT(token=token)["user_id"]
     db_advert = crud.update_advert(db=db, user_id=user_id, advert_id=id, advert=advert)
     if not db_advert:
-        return HTTPException(status_code=404, detail="User does not have that advert.")
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
     return Response(status_code=200)
 
 @app.delete("/shanyraks/{id}", tags=["delete advert"])
@@ -85,7 +84,7 @@ def delete_advert(id: int, token: str = Depends(oauth2_scheme), db: Session = De
     user_id = decodeJWT(token=token)["user_id"]
     deleted = crud.delete_advert(db=db, advert_id=id, user_id=user_id)
     if not deleted:
-        return HTTPException(status_code=404, detail="User does not have that advert.")
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
     return Response(status_code=200)
 
 @app.post("/shanyraks/{id}/comments", tags=["create comment"])
@@ -120,7 +119,7 @@ def update_comment(
     user_id = decodeJWT(token=token)["user_id"]
     db_comment = crud.get_comment_by_advert_id_comment_id(db=db, advert_id=id, comment_id=comment_id)
     if not db_comment or db_comment.author_id != user_id:
-        return HTTPException(status_code=404, detail="User does not have that comment.")
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
     db_comment = crud.update_comment_by_id(db=db, comment_id=comment_id, comment=comment)
     return Response(status_code=200)
 
@@ -133,8 +132,55 @@ def delete_comment(
 ):
     user_id = decodeJWT(token=token)["user_id"]
     db_comment = crud.get_comment_by_advert_id_comment_id(db=db, advert_id=id, comment_id=comment_id)
-    if not db_comment or db_comment.author_id != user_id:
-        return HTTPException(status_code=404, detail="User does not have that comment.")
+    if not db_comment or (db_comment.author_id != user_id and db_comment.advert.user_id != user_id):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
     
     crud.delete_comment(db=db, comment_id=comment_id)
     return Response(status_code=200)
+
+@app.post("/auth/users/favorites/shanyraks/{id}", tags=["add favorite advert"])
+def add_favorite(id: int, db: Session = Depends(get_db), token: str = Depends(oauth2_scheme)):
+    user_id = decodeJWT(token=token)["user_id"]
+    db_fadvert = crud.add_fadvert(db=db, advert_id=id, user_id=user_id)
+    return Response(status_code=200)
+
+@app.get("/auth/users/favorites/shanyraks", tags=["get favorite adverts"])
+def get_favorties(db: Session = Depends(get_db), token: str = Depends(oauth2_scheme)):
+    user_id = decodeJWT(token=token)["user_id"]
+    db_fadverts = crud.get_fadverts(db=db, user_id=user_id)
+    fadverts = [schemas.Fadvert(_id=fadvert._id, address=fadvert.advert.address) for fadvert in db_fadverts]
+    return schemas.Fadverts(shanyraks=fadverts)
+
+@app.delete("/auth/users/favorites/shanyraks/{id}", tags=["delete favorite advert"])
+def delete_favorite(id: int, db: Session = Depends(get_db), token: str = Depends(oauth2_scheme)):
+    user_id = decodeJWT(token=token)["user_id"]
+    db_fadvert = crud.delete_fadvert(db=db, advert_id=id, user_id=user_id)
+    return Response(status_code=200)
+
+def rename_id_to__id(item):
+    item._id = item.id
+    return item
+
+@app.get("/shanyraks/", tags=["get shanyraks"])
+def get_shanyraks(
+    params: schemas.Shanyrak = Depends(),
+    db: Session = Depends(get_db)
+):
+    filter_conditions = []
+    if params.type is not None:
+        filter_conditions.append(models.Advert.type == params.type)
+    if params.rooms_count is not None:
+        filter_conditions.append(models.Advert.rooms_count == params.rooms_count)
+    if params.price_from is not None:
+        filter_conditions.append(models.Advert.price >= params.price_from)
+    if params.price_until is not None:
+        filter_conditions.append(models.Advert.price <= params.price_until)
+
+    query_filter = and_(*filter_conditions)
+    total_rows = db.query(models.Advert).filter(and_(*filter_conditions)).count()
+
+    # Query the database with pagination and filtering
+    results = db.query(models.Advert).filter(query_filter).order_by(desc(models.Advert.created_at)).offset(params.offset).limit(params.limit).all()
+    results = [schemas.ShanyrakAdvert(_id = orm_object.id, type=orm_object.type, price=orm_object.price, address=orm_object.address, area=orm_object.area, rooms_count=orm_object.rooms_count) for orm_object in results]
+
+    return schemas.ResponseShanyrak(total=total_rows, objects=results) 

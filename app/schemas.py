@@ -1,6 +1,7 @@
-from pydantic import BaseModel
-
+from pydantic import BaseModel, Field
+from fastapi import Query
 import datetime
+from typing import Union
 
 class CommentBase(BaseModel):
     content: str
@@ -66,3 +67,30 @@ class UserUpdate(BaseModel):
     phone: str = None
     name: str = None
     city: str = None
+
+class Fadvert(BaseModel):
+    id: int = Field(..., alias="_id")
+    address: str
+
+class Fadverts(BaseModel):
+    shanyraks: list[Fadvert]
+
+class Shanyrak(BaseModel):
+    limit: int = Query(..., ge=1)
+    offset: int = Query(..., ge=0)
+    type: Union[str, None] = Query(None, regex="^(sell|rent)$")
+    rooms_count: Union[int, None] = Query(None, ge=1)
+    price_from: Union[int, None] = Query(None, ge=0)
+    price_until: Union[int, None] = Query(None, ge=0)
+
+class ShanyrakAdvert(BaseModel):
+    id: int = Field(..., alias="_id")
+    type: str
+    price: int
+    address: str
+    area: float
+    rooms_count: int
+
+class ResponseShanyrak(BaseModel):
+    total: int
+    objects: list[ShanyrakAdvert]

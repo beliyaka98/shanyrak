@@ -1,9 +1,10 @@
-import time
 import jwt
 from decouple import config
+from fastapi import Depends, HTTPException, status
 
 JWT_SECRET = config("secret")
 JWT_ALGORITHM = config("algorithm")
+
 
 
 def signJWT(user_id: str):
@@ -15,5 +16,9 @@ def signJWT(user_id: str):
     return token
 
 def decodeJWT(token: str):
-    return jwt.decode(token, JWT_SECRET, algorithms=JWT_ALGORITHM)
-    
+    try:
+        payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
+        return payload
+    except:
+        headers = {"WWW-Authenticate": "Bearer"}
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, headers=headers)

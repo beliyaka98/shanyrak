@@ -33,7 +33,7 @@ def update_user(db: Session, user_id, user: schemas.UserUpdate):
     return db_user            
 
 def create_advert(db: Session, advert: schemas.CreateAdvert, user_id: int):
-    db_advert = models.Advert(**advert.dict(), user_id=user_id)
+    db_advert = models.Advert(**advert.dict(), user_id=user_id, created_at=datetime.datetime.now())
     db.add(db_advert)
     db.commit()
     db.refresh(db_advert)
@@ -52,7 +52,7 @@ def update_advert(db: Session, user_id: int, advert_id: int, advert: schemas.Adv
                     setattr(db_advert, key, value)
             db.commit()
             return db_advert
-    return None
+    return False
 
 def delete_advert(db: Session, advert_id: int, user_id: int):
     db_user = db.query(models.User).filter(models.User.id == user_id).first()
@@ -81,7 +81,30 @@ def update_comment_by_id(db: Session, comment_id: int, comment: schemas.CreateCo
     return db_comment
 
 def delete_comment(db: Session, comment_id: int):
-    db_comment = db_user = db.query(models.Comment).filter(models.Comment.id == comment_id).first()
+    db_comment = db.query(models.Comment).filter(models.Comment.id == comment_id).first()
     db.delete(db_comment)
     db.commit()
     return True
+
+def add_fadvert(db: Session, advert_id: int, user_id: int):
+    db_fadvert = db.query(models.Fadvert).filter(models.Fadvert._id == advert_id, models.Fadvert.owner_id == user_id).first()
+    if db_fadvert:
+        return db_fadvert
+    else:
+        db_fadvert = models.Fadvert(owner_id = user_id, _id = advert_id)
+        db.add(db_fadvert)
+        db.commit()
+        db.refresh(db_fadvert)
+        return db_fadvert
+
+def get_fadverts(db: Session, user_id: int):
+    db_fadverts = db.query(models.Fadvert).filter(models.Fadvert.owner_id == user_id).all()
+    return db_fadverts
+
+def delete_fadvert(db: Session, user_id: int, advert_id: int):
+    db_fadvert = db.query(models.Fadvert).filter(models.Fadvert.owner_id == user_id, models.Fadvert._id == advert_id).first()
+    if db_fadvert:
+        db.delete(db_fadvert)
+        db.commit()
+        return True
+    return False
